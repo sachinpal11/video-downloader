@@ -4,7 +4,6 @@ dotenv.config();
 
 import express from "express";
 import cors from "cors";
-import { warmDaemon } from "./services/warmDaemon";
 import { ytdlpPath } from "./services/ytdlp";
 import { exec } from "child_process";
 import infoRoute from "./routes/info";
@@ -18,7 +17,7 @@ app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 // START DAEMON
-warmDaemon.start();
+// warmDaemon.start();
 
 // FULL SIGNATURE PREWARM
 exec(

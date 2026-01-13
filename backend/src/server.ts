@@ -1,7 +1,6 @@
 // MUST LOAD DOTENV FIRST BEFORE ANYTHING ELSE
 import dotenv from "dotenv";
 dotenv.config();
-
 import express from "express";
 import cors from "cors";
 import { ytdlpPath } from "./services/ytdlp";

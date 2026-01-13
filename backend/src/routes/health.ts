@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { warmDaemon } from "../services/warmDaemon";
+// import { warmDaemon } from "../services/warmDaemon";
 import { ytdlpPath } from "../services/ytdlp";
 import { getStats } from "../services/cache";
 import { logger } from "../utils/logger";
@@ -19,10 +19,6 @@ router.get("/", (_req: Request, res: Response) => {
       requestId,
       uptime: Math.floor(startTime),
 
-      daemon: {
-        warm: warmDaemon.process !== null,
-        binary: ytdlpPath,
-      },
 
       cache: {
         lru: cacheStats.lruSize,

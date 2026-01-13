@@ -60,3 +60,7 @@ yt-dlp_macos
 tmp/
 temp/
 *.tmp
+
+
+# Allow Linux yt-dlp binary in backend
+!backend/yt-dlp/**

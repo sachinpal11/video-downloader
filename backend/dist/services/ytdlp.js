@@ -3,205 +3,133 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.ytdlpPath = void 0;
 exports.fetchVideoInfo = fetchVideoInfo;
-exports.fetchMergedMP4 = fetchMergedMP4;
+exports.fetchDirectURL = fetchDirectURL;
 exports.fetchMultipleURLs = fetchMultipleURLs;
-const yt_dlp_exec_1 = __importDefault(require("yt-dlp-exec"));
+const child_process_1 = require("child_process");
+const path_1 = __importDefault(require("path"));
+const util_1 = require("util");
 const warmDaemon_1 = require("./warmDaemon");
 const cache_1 = require("./cache");
-const logger_1 = require("../utils/logger");
 const detector_1 = require("./detector");
-// Pre-mapped common YouTube itags for instant resolution
-const COMMON_ITAGS = {
-    "1080p": ["137", "248", "399"],
-    "720p": ["136", "247", "398"],
-    "480p": ["135", "244", "397"],
-    "360p": ["134", "243", "396"],
-    "240p": ["133", "242", "395"],
-    "144p": ["160", "278"],
-};
-const AUDIO_ITAG = "140"; // Best audio itag
-/**
- * Fast format resolution - avoids calling -F unless necessary
- */
-function resolveCommonItag(quality) {
-    const normalized = quality.toLowerCase().replace("p", "");
-    const itags = COMMON_ITAGS[`${normalized}p`] || COMMON_ITAGS[quality];
-    return itags ? itags[0] : null;
+const logger_1 = require("../utils/logger");
+const execPromise = (0, util_1.promisify)(child_process_1.exec);
+const fs_1 = __importDefault(require("fs"));
+// STATIC BINARY PATH - Check multiple possible locations
+function findYtdlpBinary() {
+    const possiblePaths = [
+        path_1.default.join(process.cwd(), "yt-dlp", "yt-dlp.exe"), // Windows in yt-dlp folder
+        path_1.default.join(process.cwd(), "yt-dlp", "yt-dlp"), // Linux in yt-dlp folder
+        path_1.default.join(process.cwd(), "yt-dlp.exe"), // Windows in root
+        path_1.default.join(process.cwd(), "yt-dlp"), // Linux in root
+        "yt-dlp", // System PATH
+    ];
+    for (const binPath of possiblePaths) {
+        if (binPath === "yt-dlp") {
+            return binPath; // System PATH - let spawn handle it
+        }
+        try {
+            if (fs_1.default.existsSync(binPath)) {
+                return binPath;
+            }
+        }
+        catch {
+            continue;
+        }
+    }
+    // Fallback to system PATH
+    return "yt-dlp";
 }
-/**
- * Extract video ID for caching
- */
-function extractVideoId(url) {
-    const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-    const match = url.match(youtubeRegex);
-    return match ? match[1] : null;
-}
-/**
- * Fetch video info with caching and optimization
- */
+exports.ytdlpPath = findYtdlpBinary();
+// ==========================
+// GET VIDEO INFO (FAST)
+// ==========================
 async function fetchVideoInfo(videoUrl) {
     warmDaemon_1.warmDaemon.markActivity();
-    // Check cache first
     const cached = await (0, cache_1.get)(videoUrl, "info");
-    if (cached) {
-        logger_1.logger.debug("Cache hit for video info:", videoUrl);
+    if (cached)
         return cached;
-    }
     try {
-        const platform = (0, detector_1.detectPlatform)(videoUrl);
-        logger_1.logger.debug(`Fetching info for ${platform}:`, videoUrl);
-        const info = await (0, yt_dlp_exec_1.default)(videoUrl, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCheckCertificate: true,
-            youtubeSkipDashManifest: true,
-        });
-        // Extract qualities - optimize for common formats
-        const videoFormats = info.formats.filter((f) => f.ext === "mp4" && f.height && f.vcodec !== "none");
-        const audioFormats = info.formats.filter((f) => f.ext === "mp4" || f.ext === "m4a" && f.acodec !== "none");
-        const qualities = videoFormats
-            .map((f) => ({
-            itag: f.format_id,
-            quality: `${f.height}p`,
-            size: f.filesize || f.filesize_approx || null,
-        }))
-            .sort((a, b) => parseInt(b.quality) - parseInt(a.quality));
-        // Add audio-only option
-        if (audioFormats.length > 0) {
-            const bestAudio = audioFormats.find((f) => f.format_id === AUDIO_ITAG) || audioFormats[0];
-            qualities.push({
-                itag: bestAudio.format_id,
-                quality: "audio",
-                size: bestAudio.filesize || bestAudio.filesize_approx || null,
-            });
-        }
-        const responseData = {
-            status: "ok",
-            platform,
-            title: info.title,
-            thumbnail: info.thumbnail,
-            channel: info.channel || info.uploader || null,
-            duration: info.duration,
-            qualities,
-            videoId: extractVideoId(videoUrl),
-        };
-        // Cache for 1 hour
-        await (0, cache_1.set)(videoUrl, responseData, "info", 3600);
-        return responseData;
-    }
-    catch (err) {
-        logger_1.logger.error("Failed to fetch video info:", err);
-        throw err;
-    }
-}
-/**
- * Fetch merged MP4 URL with caching and expiry detection
- */
-async function fetchMergedMP4(videoUrl, itag) {
-    warmDaemon_1.warmDaemon.markActivity();
-    // Check cache first
-    const cachedUrl = await (0, cache_1.getDownloadUrl)(videoUrl, itag);
-    if (cachedUrl) {
-        // Validate URL is still valid (Google Video URLs expire)
-        const isGoogleVideo = cachedUrl.includes("googlevideo.com");
-        const cachedEntry = await (0, cache_1.get)(videoUrl, "download");
-        const urlAge = Date.now() - ((cachedEntry === null || cachedEntry === void 0 ? void 0 : cachedEntry.cached_at) || 0);
-        // Google Video URLs expire after ~6 hours, but be safe and refresh after 4 hours
-        if (isGoogleVideo && urlAge > 4 * 60 * 60 * 1000) {
-            logger_1.logger.debug("Cached URL expired, regenerating:", videoUrl);
-            // Continue to regenerate below
-        }
-        else {
-            logger_1.logger.debug("Cache hit for download URL:", videoUrl);
-            return cachedUrl;
-        }
-    }
-    try {
-        const platform = (0, detector_1.detectPlatform)(videoUrl);
-        logger_1.logger.debug(`Fetching download URL for ${platform}:`, videoUrl, "itag:", itag);
-        // Fast path: Use common itag if available
-        const commonItag = resolveCommonItag(itag);
-        const formatSpec = commonItag
-            ? `${commonItag}+${AUDIO_ITAG}` // VIDEO + AUDIO merge
-            : `${itag}+${AUDIO_ITAG}`;
-        const mergedUrl = (await (0, yt_dlp_exec_1.default)(videoUrl, {
-            getUrl: true,
-            format: formatSpec,
-            mergeOutputFormat: "mp4",
-            noWarnings: true,
-            noCheckCertificate: true,
-            youtubeSkipDashManifest: true,
-        }));
-        // Cache with appropriate TTL based on platform
-        const ttl = platform === "youtube" ? 14400 : 3600; // 4 hours for YouTube, 1 hour for others
-        await (0, cache_1.setDownloadUrl)(videoUrl, itag, mergedUrl, ttl);
-        return mergedUrl;
-    }
-    catch (err) {
-        logger_1.logger.error("Failed to fetch merged MP4:", err);
-        throw err;
-    }
-}
-/**
- * Fetch multiple download URLs (for multi-video platforms)
- */
-async function fetchMultipleURLs(videoUrl) {
-    warmDaemon_1.warmDaemon.markActivity();
-    // Check cache
-    const cached = await (0, cache_1.get)(videoUrl, "multi");
-    if (cached) {
-        logger_1.logger.debug("Cache hit for multi URLs:", videoUrl);
-        return cached;
-    }
-    try {
-        const info = await (0, yt_dlp_exec_1.default)(videoUrl, {
-            dumpSingleJson: true,
-            noWarnings: true,
-            noCheckCertificate: true,
-        });
-        // Handle playlists, carousels, albums
-        const isPlaylist = info.playlist_index !== undefined;
-        const items = isPlaylist
-            ? [{ ...info }] // Single item for now, extend for full playlist support
-            : [info];
-        const results = await Promise.all(items.map(async (item) => {
-            try {
-                const qualities = item.formats
-                    .filter((f) => f.ext === "mp4" && f.height)
-                    .map((f) => ({
+        const { stdout } = await execPromise(`"${exports.ytdlpPath}" -J --no-warnings --no-check-certificate "${videoUrl}"`);
+        const info = JSON.parse(stdout);
+        const formats = info.formats || [];
+        const qualities = [];
+        // progressive first
+        const progressive = formats.filter((f) => f.acodec !== "none" && f.vcodec !== "none");
+        progressive.forEach((f) => {
+            if (f.height) {
+                qualities.push({
                     itag: f.format_id,
                     quality: `${f.height}p`,
-                    size: f.filesize || f.filesize_approx || null,
-                }));
-                // Fetch best quality URL
-                const bestQuality = qualities[0];
-                if (bestQuality) {
-                    const downloadUrl = await fetchMergedMP4(videoUrl, bestQuality.itag);
-                    return {
-                        title: item.title,
-                        thumbnail: item.thumbnail,
-                        downloadUrl,
-                        qualities,
-                    };
-                }
+                    size: f.filesize || f.filesize_approx || null
+                });
             }
-            catch (err) {
-                logger_1.logger.warn("Failed to fetch URL for item:", err);
-                return null;
-            }
-        }));
-        const responseData = {
+        });
+        // audio
+        const audio = formats.filter((f) => f.acodec !== "none" && f.vcodec === "none");
+        const audioFormat = audio.find((a) => a.format_id === "140") || audio[0];
+        if (audioFormat) {
+            qualities.push({
+                itag: audioFormat.format_id,
+                quality: "audio",
+                size: audioFormat.filesize || audioFormat.filesize_approx || null
+            });
+        }
+        const data = {
             status: "ok",
             platform: (0, detector_1.detectPlatform)(videoUrl),
-            items: results.filter(Boolean),
+            title: info.title,
+            thumbnail: info.thumbnail,
+            duration: info.duration,
+            channel: info.channel || info.uploader,
+            qualities
         };
-        // Cache for 1 hour
-        await (0, cache_1.set)(videoUrl, responseData, "multi", 3600);
-        return responseData;
+        await (0, cache_1.set)(videoUrl, data, "info", 3600);
+        return data;
     }
     catch (err) {
-        logger_1.logger.error("Failed to fetch multiple URLs:", err);
+        logger_1.logger.error("Video info error:", err);
         throw err;
     }
+}
+// ==========================
+// DIRECT DOWNLOAD URL
+// ==========================
+async function fetchDirectURL(videoUrl, itag) {
+    warmDaemon_1.warmDaemon.markActivity();
+    itag = itag.trim(); // FIX NEWLINE BUG
+    const cached = await (0, cache_1.getDownloadUrl)(videoUrl, itag);
+    if (cached)
+        return cached;
+    try {
+        const command = `"${exports.ytdlpPath}" -f ${itag} --get-url --no-warnings --no-check-certificate "${videoUrl}"`;
+        const { stdout } = await execPromise(command);
+        const directUrl = stdout.trim().split("\n")[0];
+        const ttl = directUrl.includes("googlevideo.com") ? 14400 : 3600;
+        await (0, cache_1.setDownloadUrl)(videoUrl, itag, directUrl, ttl);
+        return directUrl;
+    }
+    catch (err) {
+        logger_1.logger.error("Direct URL fetch failed:", err);
+        throw err;
+    }
+}
+async function fetchMultipleURLs(videoUrl) {
+    const { stdout } = await execPromise(`"${exports.ytdlpPath}" -J --no-warnings --no-check-certificate "${videoUrl}"`);
+    const info = JSON.parse(stdout);
+    const items = info.entries || [info];
+    const results = await Promise.all(items.map(async (item) => {
+        const { stdout } = await execPromise(`"${exports.ytdlpPath}" --get-url -f best "${item.webpage_url}"`);
+        return {
+            title: item.title,
+            thumbnail: item.thumbnail,
+            url: stdout.trim().split("\n")[0]
+        };
+    }));
+    return {
+        status: "ok",
+        platform: (0, detector_1.detectPlatform)(videoUrl),
+        items: results
+    };
 }

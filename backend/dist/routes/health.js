@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const warmDaemon_1 = require("../services/warmDaemon");
+const ytdlp_1 = require("../services/ytdlp");
 const cache_1 = require("../services/cache");
 const logger_1 = require("../utils/logger");
 const requestId_1 = require("../utils/requestId");
@@ -11,14 +12,13 @@ router.get("/", (_req, res) => {
     const startTime = process.uptime();
     try {
         const cacheStats = (0, cache_1.getStats)();
-        const daemonStatus = warmDaemon_1.warmDaemon.isWarm();
         res.json({
             status: "ok",
             requestId,
             uptime: Math.floor(startTime),
             daemon: {
-                warm: daemonStatus,
-                binary: warmDaemon_1.warmDaemon.getBinaryPath(),
+                warm: warmDaemon_1.warmDaemon.alive,
+                binary: ytdlp_1.ytdlpPath,
             },
             cache: {
                 lru: cacheStats.lruSize,

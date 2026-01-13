@@ -2,6 +2,7 @@
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
+var _a, _b;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.get = get;
 exports.getCache = get;
@@ -15,65 +16,71 @@ exports.getStats = getStats;
 const node_cache_1 = __importDefault(require("node-cache"));
 const lru_cache_1 = require("lru-cache");
 const redis_1 = require("@upstash/redis");
-// In-memory LRU cache for hottest 1000 URLs (fastest access)
+// ------------------------------
+// 1. In-Memory LRU Cache
+// ------------------------------
 const memoryLRU = new lru_cache_1.LRUCache({
-    max: 1000,
-    ttl: 900000, // 15 minutes
+    max: 1000, // hottest 1000 URLs
+    ttl: 15 * 60 * 1000 // 15 minutes
 });
-// NodeCache for medium-term caching
-const nodeCache = new node_cache_1.default({ stdTTL: 3600 }); // 1 hour
-// Redis client (Upstash compatible) - optional
+// ------------------------------
+// 2. NodeCache for mid-term caching (RAM)
+// ------------------------------
+const nodeCache = new node_cache_1.default({
+    stdTTL: 3600 // 1 hour
+});
+// ------------------------------
+// 3. Upstash Redis (REST mode)
+// ------------------------------
 let redis = null;
 try {
-    const redisUrl = process.env.REDIS_URL;
-    const redisToken = process.env.REDIS_TOKEN;
+    const redisUrl = (_a = process.env.REDIS_URL) === null || _a === void 0 ? void 0 : _a.trim();
+    const redisToken = (_b = process.env.REDIS_TOKEN) === null || _b === void 0 ? void 0 : _b.trim();
     if (redisUrl && redisToken) {
         redis = new redis_1.Redis({
             url: redisUrl,
-            token: redisToken,
+            token: redisToken
         });
-        console.log("✅ Redis cache initialized");
+        console.log("🟩 Redis cache initialized");
     }
     else {
-        console.log("⚠️  Redis not configured, using in-memory cache only");
+        console.log("⚠️ Redis not configured, using in-memory cache only");
     }
 }
 catch (err) {
-    console.warn("⚠️  Redis initialization failed, using in-memory cache only:", err);
+    console.warn("⚠️ Redis initialization failed, using in-memory cache only:", err);
 }
-/**
- * Generate cache key from URL
- */
+// ------------------------------
+// Helper: Generate cache key
+// ------------------------------
 function getCacheKey(url, type = "info") {
-    const urlHash = Buffer.from(url).toString("base64").replace(/[^a-zA-Z0-9]/g, "");
-    return `${type}:${urlHash}`;
+    const encoded = Buffer.from(url).toString("base64").replace(/[^a-zA-Z0-9]/g, "");
+    return `${type}:${encoded}`;
 }
-/**
- * Get from cache (checks LRU -> NodeCache -> Redis in order)
- */
+// ------------------------------
+// Get from cache (LRU → NodeCache → Redis)
+// ------------------------------
 async function get(url, type = "info") {
     const key = getCacheKey(url, type);
-    // 1. Check LRU cache (fastest)
-    const lruEntry = memoryLRU.get(key);
-    if (lruEntry && lruEntry.expires_at > Date.now()) {
-        return lruEntry.metadata;
+    // 1. LRU Cache
+    const entry = memoryLRU.get(key);
+    if (entry && entry.expires_at > Date.now()) {
+        return entry.metadata;
     }
-    // 2. Check NodeCache
-    const nodeEntry = nodeCache.get(key);
-    if (nodeEntry && nodeEntry.expires_at > Date.now()) {
-        // Promote to LRU
-        memoryLRU.set(key, nodeEntry);
-        return nodeEntry.metadata;
+    // 2. NodeCache
+    const nc = nodeCache.get(key);
+    if (nc && nc.expires_at > Date.now()) {
+        memoryLRU.set(key, nc); // promote
+        return nc.metadata;
     }
-    // 3. Check Redis (if available)
+    // 3. Redis
     if (redis) {
         try {
-            const redisEntry = await redis.get(key);
-            if (redisEntry && redisEntry.expires_at > Date.now()) {
-                // Promote to NodeCache and LRU
-                nodeCache.set(key, redisEntry);
-                memoryLRU.set(key, redisEntry);
-                return redisEntry.metadata;
+            const re = await redis.get(key);
+            if (re && re.expires_at > Date.now()) {
+                nodeCache.set(key, re);
+                memoryLRU.set(key, re);
+                return re.metadata;
             }
         }
         catch (err) {
@@ -82,23 +89,20 @@ async function get(url, type = "info") {
     }
     return null;
 }
-/**
- * Set cache (writes to all layers)
- */
+// ------------------------------
+// Set cache (writes to all layers)
+// ------------------------------
 async function set(url, data, type = "info", ttl = 3600) {
     const key = getCacheKey(url, type);
-    const expiresAt = Date.now() + ttl * 1000;
+    const expires = Date.now() + ttl * 1000;
     const entry = {
         id: key,
         metadata: data,
-        expires_at: expiresAt,
-        cached_at: Date.now(),
+        expires_at: expires,
+        cached_at: Date.now()
     };
-    // 1. Set LRU cache
     memoryLRU.set(key, entry);
-    // 2. Set NodeCache
     nodeCache.set(key, entry, ttl);
-    // 3. Set Redis (if available)
     if (redis) {
         try {
             await redis.set(key, entry, { ex: ttl });
@@ -108,22 +112,22 @@ async function set(url, data, type = "info", ttl = 3600) {
         }
     }
 }
-/**
- * Set download URL with expiry tracking
- */
+// ------------------------------
+// Track download URLs
+// ------------------------------
 async function setDownloadUrl(url, itag, downloadUrl, expiresIn = 3600) {
     const key = getCacheKey(url, "download");
-    const expiresAt = Date.now() + expiresIn * 1000;
-    const existing = memoryLRU.get(key) || nodeCache.get(key);
+    const expires = Date.now() + expiresIn * 1000;
+    const existing = await get(url, "download");
     const entry = {
         id: key,
         metadata: (existing === null || existing === void 0 ? void 0 : existing.metadata) || {},
         direct_urls: {
             ...existing === null || existing === void 0 ? void 0 : existing.direct_urls,
-            [itag]: downloadUrl,
+            [itag]: downloadUrl
         },
-        expires_at: expiresAt,
-        cached_at: Date.now(),
+        expires_at: expires,
+        cached_at: Date.now()
     };
     memoryLRU.set(key, entry);
     nodeCache.set(key, entry, expiresIn);
@@ -136,37 +140,35 @@ async function setDownloadUrl(url, itag, downloadUrl, expiresIn = 3600) {
         }
     }
 }
-/**
- * Get download URL from cache
- */
+// ------------------------------
+// Retrieve download URL
+// ------------------------------
 async function getDownloadUrl(url, itag) {
-    const key = getCacheKey(url, "download");
+    var _a;
     const entry = await get(url, "download");
-    if (entry && entry.direct_urls && entry.direct_urls[itag]) {
-        // Check if expired
+    if ((_a = entry === null || entry === void 0 ? void 0 : entry.direct_urls) === null || _a === void 0 ? void 0 : _a[itag]) {
         if (entry.expires_at > Date.now()) {
             return entry.direct_urls[itag];
         }
     }
     return null;
 }
-/**
- * Check if URL is cached
- */
+// ------------------------------
+// Utilities
+// ------------------------------
 async function has(url, type = "info") {
     const key = getCacheKey(url, type);
     if (memoryLRU.has(key)) {
-        const entry = memoryLRU.get(key);
-        return entry ? entry.expires_at > Date.now() : false;
+        const e = memoryLRU.get(key);
+        return e ? e.expires_at > Date.now() : false;
     }
-    if (nodeCache.has(key)) {
-        const entry = nodeCache.get(key);
-        return entry ? entry.expires_at > Date.now() : false;
-    }
+    const e2 = nodeCache.get(key);
+    if (e2)
+        return e2.expires_at > Date.now();
     if (redis) {
         try {
-            const entry = await redis.get(key);
-            return entry ? entry.expires_at > Date.now() : false;
+            const e3 = await redis.get(key);
+            return e3 ? e3.expires_at > Date.now() : false;
         }
         catch {
             return false;
@@ -174,9 +176,6 @@ async function has(url, type = "info") {
     }
     return false;
 }
-/**
- * Delete from cache
- */
 async function del(url, type = "info") {
     const key = getCacheKey(url, type);
     memoryLRU.delete(key);
@@ -185,29 +184,17 @@ async function del(url, type = "info") {
         try {
             await redis.del(key);
         }
-        catch (err) {
-            console.warn("Redis delete error:", err);
-        }
+        catch { }
     }
 }
-/**
- * Clear all caches
- */
 function clear() {
     memoryLRU.clear();
     nodeCache.flushAll();
-    if (redis) {
-        // Note: Redis flush requires careful handling in production
-        console.warn("Redis flush not called - use with caution in production");
-    }
 }
-/**
- * Get cache statistics
- */
 function getStats() {
     return {
         lruSize: memoryLRU.size,
         nodeCacheSize: nodeCache.keys().length,
-        redisConnected: redis !== null,
+        redisConnected: redis !== null
     };
 }

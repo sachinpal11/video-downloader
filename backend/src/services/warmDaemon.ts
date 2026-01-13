@@ -1,47 +1,82 @@
 import { spawn, ChildProcess } from "child_process";
-import { ytdlpPath } from "./ytdlp";
+import { ytdlpPath, cookieFlag } from "./ytdlp";
 import { logger } from "../utils/logger";
 
 export const warmDaemon = {
   process: null as ChildProcess | null,
-  alive: false,
+  lastUse: Date.now(),
+  restartInterval: 10 * 60 * 1000, // 10 minutes
+  checkTimer: null as NodeJS.Timeout | null,
 
   start() {
     if (this.process) return;
 
-    logger.info("🔥 Daemon warm: Initializing...");
+    logger.info("🔥 Warming yt-dlp... (extractors preloading)");
 
-    // Windows-safe: detached:false and windowsHide:true
-    const child = spawn(ytdlpPath, ["--extractor-warmup"], {
+    const args = [
+      "--extractor-warmup",
+      "--no-warnings",
+      "--no-check-certificate",
+      ...cookieFlag.split(" ").filter(Boolean)
+    ];
+
+    const child = spawn(ytdlpPath, args, {
       detached: false,
       stdio: "ignore",
       windowsHide: true
     });
 
     this.process = child;
-    this.alive = true;
+    this.lastUse = Date.now();
 
-    // Allow background execution without blocking event loop
-    try {
-      child.unref();
-    } catch (_) {
-      // ignore on Windows if unref() is restricted
-    }
+    try { child.unref(); } catch {}
 
-    logger.info("✅ yt-dlp warm daemon initialized");
+    logger.info("✅ yt-dlp warm daemon active");
 
+    // Auto-respawn if yt-dlp crashes
     child.on("exit", (code) => {
-      this.alive = false;
-      logger.warn(`⚠️ Warm daemon exited (code: ${code})`);
+      logger.warn(`⚠️ Warm daemon crashed (code ${code})`);
+      this.process = null;
+      setTimeout(() => this.start(), 1000);
     });
 
-    child.on("error", (err: Error) => {
-      this.alive = false;
+    child.on("error", (err) => {
       logger.error("🔥 Warm daemon error:", err);
+      this.process = null;
     });
+
+    // Start health monitor
+    this.startMonitor();
   },
 
+  // Called on every API request
   markActivity() {
-    // Keep daemon warm — Windows needs no-op
+    this.lastUse = Date.now();
+
+    // If somehow daemon died, restart instantly
+    if (!this.process) {
+      this.start();
+    }
+  },
+
+  // Background monitor to refresh yt-dlp every 10 min
+  startMonitor() {
+    if (this.checkTimer) return;
+
+    this.checkTimer = setInterval(() => {
+      const idleTime = Date.now() - this.lastUse;
+
+      // Restart to keep yt-dlp hot & prevent memory leak
+      if (idleTime > this.restartInterval) {
+        logger.info("♻️ Restarting warm daemon (10 min refresh)");
+
+        if (this.process) {
+          try { this.process.kill("SIGKILL"); } catch {}
+        }
+
+        this.process = null;
+        this.start();
+      }
+    }, 30_000); // check every 30 seconds
   }
 };

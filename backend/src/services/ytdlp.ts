@@ -19,8 +19,8 @@ import fs from "fs";
 // STATIC BINARY PATH - Check multiple possible locations
 function findYtdlpBinary(): string {
   const possiblePaths = [
-    path.join(process.cwd(), "yt-dlp", "yt-dlp.exe"),  // Windows in yt-dlp folder
     path.join(process.cwd(), "yt-dlp", "yt-dlp"),      // Linux in yt-dlp folder
+    path.join(process.cwd(), "yt-dlp", "yt-dlp.exe"),  // Windows in yt-dlp folder
     path.join(process.cwd(), "yt-dlp.exe"),            // Windows in root
     path.join(process.cwd(), "yt-dlp"),                // Linux in root
     "yt-dlp",                                           // System PATH

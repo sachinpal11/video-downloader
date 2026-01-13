@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.log
+
+# Production
+dist/
+build/
+.next/
+out/
+
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Video files (too large for Git)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.m4v
+*.3gp
+*.ogv
+
+# Downloaded videos
+**/video.mp4
+**/videos/
+**/downloads/
+
+# yt-dlp binaries (should be downloaded separately)
+yt-dlp/
+yt-dlp.exe
+yt-dlp_linux
+yt-dlp_macos
+
+# Cache
+.cache/
+*.cache
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -1,0 +1,5 @@
+# Place yt-dlp static binary here
+# Download from: https://github.com/yt-dlp/yt-dlp/releases
+# For Linux x64: yt-dlp_linux
+# For macOS: yt-dlp_macos
+# For Windows: yt-dlp.exe

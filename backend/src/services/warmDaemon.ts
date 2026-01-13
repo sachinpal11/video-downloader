@@ -1,10 +1,9 @@
-import { spawn } from "child_process";
-import path from "path";
+import { spawn, ChildProcess } from "child_process";
 import { ytdlpPath } from "./ytdlp";
 import { logger } from "../utils/logger";
 
 export const warmDaemon = {
-  process: null as any,
+  process: null as ChildProcess | null,
   alive: false,
 
   start() {
@@ -12,26 +11,37 @@ export const warmDaemon = {
 
     logger.info("🔥 Daemon warm: Initializing...");
 
-    this.process = spawn(ytdlpPath, ["--extractor-warmup"], {
-      detached: true,
-      stdio: "ignore"
+    // Windows-safe: detached:false and windowsHide:true
+    const child = spawn(ytdlpPath, ["--extractor-warmup"], {
+      detached: false,
+      stdio: "ignore",
+      windowsHide: true
     });
 
+    this.process = child;
     this.alive = true;
+
+    // Allow background execution without blocking event loop
+    try {
+      child.unref();
+    } catch (_) {
+      // ignore on Windows if unref() is restricted
+    }
 
     logger.info("✅ yt-dlp warm daemon initialized");
 
-    this.process.on("exit", () => {
+    child.on("exit", (code) => {
       this.alive = false;
-      logger.warn("⚠️ Warm daemon exited");
+      logger.warn(`⚠️ Warm daemon exited (code: ${code})`);
     });
 
-    this.process.on("error", (err:Error) => {
+    child.on("error", (err: Error) => {
+      this.alive = false;
       logger.error("🔥 Warm daemon error:", err);
     });
   },
 
   markActivity() {
-    // keep-alive hook
+    // Keep daemon warm — Windows needs no-op
   }
 };

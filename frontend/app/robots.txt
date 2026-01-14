@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Prevent crawling of internal API routes
+Disallow: /api/
+
+# Sitemap location
+Sitemap: https://downloadytvideo.vercel.app/sitemap.xml

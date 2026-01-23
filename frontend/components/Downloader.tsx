@@ -45,31 +45,8 @@ export const metadata = {
   },
 
   // 🔥 Preconnect to backend API
-  other: {
-    "link:preconnect": "https://safe-bidget-sachinpal11-7247ff8d.koyeb.app",
-  },
 
   // 🔥 JSON-LD Schema for Google Ranking
-  script: [
-    {
-      type: "application/ld+json",
-      children: JSON.stringify({
-        "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        name: "DownloadYTVideo",
-        applicationCategory: "VideoDownloader",
-        operatingSystem: "All",
-        url: "https://downloadytvideo.vercel.app",
-        offers: {
-          "@type": "Offer",
-          price: "0.00",
-          priceCurrency: "USD",
-        },
-        description:
-          "Free online YT video downloader supporting 1080p, 720p MP4 formats with fast speed.",
-      }),
-    },
-  ],
 };
 
 // -------------------------------

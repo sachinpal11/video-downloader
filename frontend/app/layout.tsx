@@ -42,26 +42,26 @@ export const metadata: Metadata = {
 };
 
 // Required for custom <head> in App Router
-export function Head() {
-  return (
-    <>
-      {/* PRELOAD FONT */}
-      <link
-        rel="preload"
-        href="/fonts/poppins.woff2"
-        as="font"
-        type="font/woff2"
-        crossOrigin="anonymous"
-      />
+// export function Head() {
+//   return (
+//     <>
+//       {/* PRELOAD FONT */}
+//       <link
+//         rel="preload"
+//         href="/fonts/poppins.woff2"
+//         as="font"
+//         type="font/woff2"
+//         crossOrigin="anonymous"
+//       />
 
-      {/* PRECONNECT BACKEND */}
-      <link
-        rel="preconnect"
-        href="https://safe-bidget-sachinpal11-7247ff8d.koyeb.app"
-      />
-    </>
-  );
-}
+//       {/* PRECONNECT BACKEND */}
+//       <link
+//         rel="preconnect"
+//         href="https://safe-bidget-sachinpal11-7247ff8d.koyeb.app"
+//       />
+//     </>
+//   );
+// }
 
 export default function RootLayout({
   children,
@@ -81,7 +81,7 @@ export default function RootLayout({
         `}
       >
         {/* JSON-LD (safe inside body) */}
-        <script
+        {/* <script
           type="application/ld+json"
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
@@ -99,7 +99,7 @@ export default function RootLayout({
               },
             }),
           }}
-        />
+        /> */}
 
         {children}
       </body>

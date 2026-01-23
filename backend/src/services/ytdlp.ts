@@ -1,80 +1,34 @@
 import { exec } from "child_process";
-import path from "path";
 import { promisify } from "util";
 import {
   getDownloadUrl,
   setDownloadUrl,
   get as getCache,
-  set as setCache
+  set as setCache,
 } from "./cache";
 import { detectPlatform } from "./detector";
 import { logger } from "../utils/logger";
 import { YtFormat } from "../types";
-import fs from "fs";
 
 const execPromise = promisify(exec);
 
 // ===============================
-// FIND STATIC BINARY PATH
+// CONFIG (Render-safe)
 // ===============================
-function findYtdlpBinary(): string {
-  const possiblePaths = [
-    path.join(process.cwd(), "yt-dlp", "yt-dlp"),
-    path.join(process.cwd(), "yt-dlp", "yt-dlp.exe"),
-    path.join(process.cwd(), "yt-dlp.exe"),
-    path.join(process.cwd(), "yt-dlp"),
-    "yt-dlp",
-  ];
-
-  for (const binPath of possiblePaths) {
-    if (binPath === "yt-dlp") return binPath;
-    try {
-      if (fs.existsSync(binPath)) return binPath;
-    } catch { }
-  }
-  return "yt-dlp";
-}
-
 export const ytdlpPath = "yt-dlp";
 
-// ===============================
-// FIND COOKIES FILE PATH
-// ===============================
-function getCookiePath(): string {
-  const searchPaths = [
-    path.join(process.cwd(), "cookies.txt"),
-    path.join(process.cwd(), "cookies", "cookies.txt"),
-    path.join(process.cwd(), "yt-dlp", "cookies.txt"),
-  ];
-
-  for (const p of searchPaths) {
-    if (fs.existsSync(p)) return p;
-  }
-
-  logger.warn("⚠️ No cookies.txt found. yt-dlp may get blocked by YouTube.");
-  return ""; // return blank → yt-dlp will run without cookies
-}
-
-export const cookieFile = getCookiePath();
-
-// Build cookie flag safely
-export const cookieFlag =
-  cookieFile && fs.existsSync(cookieFile)
-    ? `--cookies "${cookieFile}"`
-    : "";
+const cookieFile = process.env.YTDLP_COOKIES || "";
+export const cookieFlag = cookieFile ? `--cookies "${cookieFile}"` : "";
 
 // ==========================
-// GET VIDEO INFO (FAST)
+// GET VIDEO INFO
 // ==========================
 export async function fetchVideoInfo(videoUrl: string) {
-  // warmDaemon.markActivity();
-
   const cached = await getCache<any>(videoUrl, "info");
   if (cached) return cached;
 
   try {
-    const cmd = `"${ytdlpPath}" -J --no-warnings --no-check-certificate ${cookieFlag} "${videoUrl}"`;
-
+    const cmd = `${ytdlpPath} -J --no-warnings --no-check-certificate ${cookieFlag} "${videoUrl}"`;
     const { stdout } = await execPromise(cmd);
 
     const info = JSON.parse(stdout);
@@ -83,31 +37,26 @@ export async function fetchVideoInfo(videoUrl: string) {
     const qualities: any[] = [];
 
     // Progressive formats
-    const progressive = formats.filter(
-      (f) => f.acodec !== "none" && f.vcodec !== "none"
-    );
-
-    progressive.forEach((f) => {
-      if (f.height) {
+    for (const f of formats) {
+      if (f.acodec !== "none" && f.vcodec !== "none" && f.height) {
         qualities.push({
           itag: f.format_id,
           quality: `${f.height}p`,
           size: f.filesize || f.filesize_approx || null,
         });
       }
-    });
+    }
 
-    // audio only
-    const audio = formats.filter(
-      (f) => f.acodec !== "none" && f.vcodec === "none"
+    // Audio only
+    const audio = formats.find(
+      (f) => f.vcodec === "none" && f.acodec !== "none"
     );
-    const audioFormat = audio.find((a) => a.format_id === "140") || audio[0];
 
-    if (audioFormat) {
+    if (audio) {
       qualities.push({
-        itag: audioFormat.format_id,
+        itag: audio.format_id,
         quality: "audio",
-        size: audioFormat.filesize || audioFormat.filesize_approx || null,
+        size: audio.filesize || audio.filesize_approx || null,
       });
     }
 
@@ -133,24 +82,19 @@ export async function fetchVideoInfo(videoUrl: string) {
 // DIRECT DOWNLOAD URL
 // ==========================
 export async function fetchDirectURL(videoUrl: string, itag: string) {
-  // warmDaemon.markActivity();
-
   itag = itag.trim();
 
   const cached = await getDownloadUrl(videoUrl, itag);
   if (cached) return cached;
 
   try {
-    const cmd = `"${ytdlpPath}" -f ${itag} --get-url --no-warnings --no-check-certificate ${cookieFlag} "${videoUrl}"`;
-
+    const cmd = `${ytdlpPath} -f ${itag} --get-url --no-warnings --no-check-certificate ${cookieFlag} "${videoUrl}"`;
     const { stdout } = await execPromise(cmd);
 
     const directUrl = stdout.trim().split("\n")[0];
-
     const ttl = directUrl.includes("googlevideo.com") ? 14400 : 3600;
 
     await setDownloadUrl(videoUrl, itag, directUrl, ttl);
-
     return directUrl;
   } catch (err) {
     logger.error("Direct URL fetch failed:", err);
@@ -159,11 +103,11 @@ export async function fetchDirectURL(videoUrl: string, itag: string) {
 }
 
 // ==========================
-// MULTI-VIDEO URL FETCH
+// MULTI VIDEO (PLAYLIST)
 // ==========================
 export async function fetchMultipleURLs(videoUrl: string) {
   const { stdout } = await execPromise(
-    `"${ytdlpPath}" -J --no-warnings --no-check-certificate ${cookieFlag} "${videoUrl}"`
+    `${ytdlpPath} -J --no-warnings --no-check-certificate ${cookieFlag} "${videoUrl}"`
   );
 
   const info = JSON.parse(stdout);
@@ -172,8 +116,9 @@ export async function fetchMultipleURLs(videoUrl: string) {
   const results = await Promise.all(
     items.map(async (item: any) => {
       const { stdout } = await execPromise(
-        `"${ytdlpPath}" --get-url -f best ${cookieFlag} "${item.webpage_url}"`
+        `${ytdlpPath} --get-url -f best ${cookieFlag} "${item.webpage_url}"`
       );
+
       return {
         title: item.title,
         thumbnail: item.thumbnail,

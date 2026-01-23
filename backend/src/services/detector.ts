@@ -2,12 +2,12 @@
  * Platform detection service
  * Detects video platform from URL
  */
-export type Platform = 
-  | "youtube" 
+export type Platform =
+  | "youtube"
   | "youtube_shorts"
-  | "instagram" 
-  | "tiktok" 
-  | "facebook" 
+  | "instagram"
+  | "tiktok"
+  | "facebook"
   | "twitter"
   | "reddit"
   | "vimeo"

@@ -1,48 +1,51 @@
-# =========================
+# ===============================
 # BUILD STAGE
-# =========================
-FROM node:22-slim AS builder
+# ===============================
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
 # Copy configs
 COPY package*.json tsconfig.json ./
 
-# Install all deps (tsc required)
+# Install ALL deps (including dev for tsc)
 RUN npm ci
 
 # Copy source
 COPY src ./src
 
-# Build TypeScript
+# Build TS
 RUN npm run build
 
 
-# =========================
-# PRODUCTION STAGE
-# =========================
-FROM node:22-slim
+# ===============================
+# RUNTIME STAGE
+# ===============================
+FROM node:20-slim
 
 WORKDIR /app
 
-# Install system dependencies (Render-safe)
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     yt-dlp \
     ffmpeg \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy compiled backend
+# Verify yt-dlp is executable
+RUN which yt-dlp && yt-dlp --version
+
+# Copy runtime files
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY package*.json ./
 
-# Install prod deps only
-RUN npm ci --omit=dev && npm cache clean --force
-
-# Non-root user
-RUN useradd -m appuser && chown -R appuser:appuser /app
+# Non-root user (Render friendly)
+RUN useradd -m appuser
 USER appuser
 
+# Expose port
 EXPOSE 4000
 
+# Start server
 CMD ["node", "dist/server.js"]

@@ -1,11 +1,11 @@
 import { exec } from "child_process";
 import path from "path";
 import { promisify } from "util";
-import { 
-  getDownloadUrl, 
-  setDownloadUrl, 
-  get as getCache, 
-  set as setCache 
+import {
+  getDownloadUrl,
+  setDownloadUrl,
+  get as getCache,
+  set as setCache
 } from "./cache";
 import { detectPlatform } from "./detector";
 import { logger } from "../utils/logger";
@@ -19,7 +19,7 @@ const execPromise = promisify(exec);
 // ===============================
 function findYtdlpBinary(): string {
   const possiblePaths = [
-    path.join(process.cwd(), "yt-dlp", "yt-dlp"),      
+    path.join(process.cwd(), "yt-dlp", "yt-dlp"),
     path.join(process.cwd(), "yt-dlp", "yt-dlp.exe"),
     path.join(process.cwd(), "yt-dlp.exe"),
     path.join(process.cwd(), "yt-dlp"),
@@ -30,12 +30,12 @@ function findYtdlpBinary(): string {
     if (binPath === "yt-dlp") return binPath;
     try {
       if (fs.existsSync(binPath)) return binPath;
-    } catch {}
+    } catch { }
   }
   return "yt-dlp";
 }
 
-export const ytdlpPath = findYtdlpBinary();
+export const ytdlpPath = "yt-dlp";
 
 // ===============================
 // FIND COOKIES FILE PATH

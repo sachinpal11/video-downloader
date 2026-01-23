@@ -5,16 +5,16 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Copy config first
+# Copy configs
 COPY package*.json tsconfig.json ./
 
-# Install ALL deps (tsc needed)
+# Install all deps (tsc required)
 RUN npm ci
 
 # Copy source
 COPY src ./src
 
-# Build TS → dist/
+# Build TypeScript
 RUN npm run build
 
 
@@ -25,32 +25,21 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (Render-safe)
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    pipx \
+    yt-dlp \
     ffmpeg \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-
-# Enable pipx path
-ENV PATH="/root/.local/bin:$PATH"
-
-# Install yt-dlp SAFELY (PEP 668 compliant)
-RUN pipx install yt-dlp
 
 # Copy compiled backend
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 
-# Install production node deps only
+# Install prod deps only
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Optional cookies directory (recommended to mount via env/volume)
-# COPY cookies ./cookies
-
-# Security: non-root user
+# Non-root user
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
